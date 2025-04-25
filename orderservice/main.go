@@ -49,7 +49,7 @@ func createOrderHandler(w http.ResponseWriter, r *http.Request) {
         http.Error(w, "Error unmarshalling JSON", http.StatusBadRequest)
 		return
 	}
-	// Basic validation.  Check if the required fields are present in the order data
+	// Check if the required fields are present in the order data
 	// productid and quantity should not be 0
     if order.ProductID == 0 || order.Quantity == 0 {
         http.Error(w, "ProductID and Quantity are required", http.StatusBadRequest)
@@ -65,9 +65,8 @@ func createOrderHandler(w http.ResponseWriter, r *http.Request) {
 
     // Calculate the total cost of order using product price and quantity
     order.Total = product.Price * float64(order.Quantity)
-	//assign unique id to order
-    order.ID = nextOrderID
-    nextOrderID++ //increment id for the next order
+    order.ID = nextOrderID   //assign unique id to order
+    nextOrderID++            //increment id for the next order
 
 	// add newly created order to in memory list/orders slice
     orders = append(orders, order) 
@@ -81,9 +80,9 @@ func createOrderHandler(w http.ResponseWriter, r *http.Request) {
 }
 // Product struct to hold product details fetched from another service
 type Product struct {
-    ID    int     `json:"id"`    // Product ID
-    Name  string  `json:"name"`  // Product name
-    Price float64 `json:"price"` // Product price
+    ID    int     `json:"id"`    
+    Name  string  `json:"name"` 
+    Price float64 `json:"price"` 
 }
 
 // function to get product details by making HTTP GET request to another microservice
@@ -101,14 +100,18 @@ func getProduct(productID int) (Product, error) {
     if resp.StatusCode != http.StatusOK {
         return Product{}, fmt.Errorf("product service returned status: %s", resp.Status)
     }
-	//ready body of response
+	//read body of response
+    // io.ReadAll reads entire response body from HTTP response and returns as byte slice
     body, err := io.ReadAll(resp.Body)
     if err != nil {
         return Product{}, fmt.Errorf("error reading response body: %w", err)
     }
-	//convert json response body into a product struct
+	//convert json response body into a Go product struct
     var product Product
-    err = json.Unmarshal(body, &product)
+    // Unmarshall vs marshall 
+    // unmarshal converts JSON or other formats into Go data types like structs
+    //body byte slice passed that holds raw JSON string
+    err = json.Unmarshal(body, &product) 
     if err != nil {
         return Product{}, fmt.Errorf("error unmarshalling product JSON: %w", err)
     }
@@ -127,6 +130,7 @@ func main() {
     http.HandleFunc("/orders", createOrderHandler) //handle POST requests
     http.HandleFunc("/orders/", getOrdersHandler) //handle GET requests
 
+    // Start the HTTP server on port 8082
     fmt.Println("Order Service listening on port 8082")
     err := http.ListenAndServe(":8082", nil)
     if err != nil {
