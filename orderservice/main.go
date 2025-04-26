@@ -88,7 +88,7 @@ type Product struct {
 // function to get product details by making HTTP GET request to another microservice
 func getProduct(productID int) (Product, error) {
 	//url for product service endpoint
-    url := fmt.Sprintf("http://localhost:8081/products/%d", productID)
+    url := fmt.Sprintf("http://productservice:8081/products/%d", productID)
     //make a GET request to product service
 	resp, err := http.Get(url)
     if err != nil {
@@ -100,6 +100,8 @@ func getProduct(productID int) (Product, error) {
     if resp.StatusCode != http.StatusOK {
         return Product{}, fmt.Errorf("product service returned status: %s", resp.Status)
     }
+    
+
 	//read body of response
     // io.ReadAll reads entire response body from HTTP response and returns as byte slice
     body, err := io.ReadAll(resp.Body)
