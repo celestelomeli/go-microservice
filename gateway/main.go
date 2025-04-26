@@ -18,6 +18,8 @@ func proxyHandler(target string) http.HandlerFunc {
 	if err != nil {
 		log.Fatalf("Failed to parse target URL: %v", err)
 	}
+	
+
 	// creates reverse proxy that knows how to forward requeststo specified host in url variable
 	proxy := httputil.NewSingleHostReverseProxy(url)
 
@@ -31,17 +33,17 @@ func proxyHandler(target string) http.HandlerFunc {
 
 func main() {
 	// Forward any request starting with "/products" to the service running on port 8081
-	http.HandleFunc("/products", proxyHandler("http://localhost:8081"))
+	http.HandleFunc("/products", proxyHandler("http://productservice:8081"))
 	// captures any nested routes like "/products/123"
-	http.HandleFunc("/products/", proxyHandler("http://localhost:8081"))
+	http.HandleFunc("/products/", proxyHandler("http://productservice:8081"))
 	
 	// Forward "/orders" requests to service on port 8082
-	http.HandleFunc("/orders", proxyHandler("http://localhost:8082"))
-    http.HandleFunc("/orders/", proxyHandler("http://localhost:8082"))
+	http.HandleFunc("/orders", proxyHandler("http://orderservice:8082"))
+    http.HandleFunc("/orders/", proxyHandler("http://orderservice:8082"))
 
 	// Forward "/users" requests to service on port 8083
-    http.HandleFunc("/users", proxyHandler("http://localhost:8083"))
-    http.HandleFunc("/users/", proxyHandler("http://localhost:8083"))
+    http.HandleFunc("/users", proxyHandler("http://userservice:8083"))
+    http.HandleFunc("/users/", proxyHandler("http://userservice:8083"))
 
 	// Log a message that the gateway is starting
 	log.Println("API Gateway listening on port 8080")
