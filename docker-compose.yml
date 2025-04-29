@@ -24,3 +24,10 @@ services:
       - userservice
       - orderservice
       - productservice
+
+  frontendservice:  
+    build: ./frontendservice
+    ports:
+      - "3000:3000"
+    depends_on:
+      - gateway
