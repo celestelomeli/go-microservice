@@ -7,7 +7,7 @@ WORKDIR /app
 # Copy Go modules
 COPY go.mod ./
 # guarantees every time you build your Go app, using the exact same safe versions of every dependency
-#COPY go.sum ./
+COPY go.sum ./
 
 # Download dependencies based on whats in go.mod & go.sum
 RUN go mod download

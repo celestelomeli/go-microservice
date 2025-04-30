@@ -13,10 +13,12 @@ import (
 // struct used to encode/decode JSON
 type Order struct {
     ID        int     `json:"id"`
+    UserID    int     `json:"user_id"`     // adding new user info
     ProductID int     `json:"product_id"`
     Quantity  int     `json:"quantity"`
     Total     float64 `json:"total"`
 }
+
 
 // Global variable to store orders (in-memory)
 // Substitute with a database
@@ -55,13 +57,21 @@ func createOrderHandler(w http.ResponseWriter, r *http.Request) {
         http.Error(w, "ProductID and Quantity are required", http.StatusBadRequest)
         return
     }
-
+    user, err := getUser(order.UserID)
+    if err != nil {
+        http.Error(w, "Invalid user: "+err.Error(), http.StatusBadRequest)
+        return
+    }
+    
     // Call product service to fetch product details 
     product, err := getProduct(order.ProductID)
     if err != nil {
         http.Error(w, "Error fetching product details: "+err.Error(), http.StatusInternalServerError)
         return //  Return after error to prevent further processing
     }
+
+
+
 
     // Calculate the total cost of order using product price and quantity
     order.Total = product.Price * float64(order.Quantity)
@@ -85,6 +95,13 @@ type Product struct {
     Price float64 `json:"price"` 
 }
 
+// Add user struct to hole user details fetched from userservice
+type User struct {
+    ID    int    `json:"id"`
+    Name  string `json:"name"`
+    Email string `json:"email"`
+}
+
 // function to get product details by making HTTP GET request to another microservice
 func getProduct(productID int) (Product, error) {
 	//url for product service endpoint
@@ -101,7 +118,6 @@ func getProduct(productID int) (Product, error) {
         return Product{}, fmt.Errorf("product service returned status: %s", resp.Status)
     }
     
-
 	//read body of response
     // io.ReadAll reads entire response body from HTTP response and returns as byte slice
     body, err := io.ReadAll(resp.Body)
@@ -117,7 +133,31 @@ func getProduct(productID int) (Product, error) {
     if err != nil {
         return Product{}, fmt.Errorf("error unmarshalling product JSON: %w", err)
     }
+    
     return product, nil
+}
+
+
+func getUser(userID int) (User, error) {
+    url := fmt.Sprintf("http://userservice:8083/users/%d", userID) // or whatever port userservice runs on
+    resp, err := http.Get(url)
+    if err != nil {
+        return User{}, fmt.Errorf("error calling user service: %w", err)
+    }
+    defer resp.Body.Close()
+
+    if resp.StatusCode != http.StatusOK {
+        return User{}, fmt.Errorf("user service error: %s", resp.Status)
+    }
+
+    var user User
+    body, _ := io.ReadAll(resp.Body)
+    err = json.Unmarshal(body, &user)
+    if err != nil {
+        return User{}, fmt.Errorf("unmarshal error: %w", err)
+    }
+
+    return user, nil
 }
 
 // getOrdersHandler to return all orders as JSON
