@@ -1,20 +1,55 @@
 services:
+  postgres:
+    image: postgres:15
+    restart: always
+    environment:
+      POSTGRES_DB: microservice_db
+      POSTGRES_USER: celeste
+      POSTGRES_PASSWORD: secret
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
   userservice:
     build: ./userservice
     ports:
       - "8083:8083"
-  
+    depends_on:
+      - postgres
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: celeste
+      DB_PASSWORD: secret
+      DB_NAME: microservice_db
+
   orderservice:
     build: ./orderservice
     ports:
       - "8082:8082"
     depends_on:
       - productservice
+      - postgres
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: celeste
+      DB_PASSWORD: secret
+      DB_NAME: microservice_db
 
   productservice:
     build: ./productservice
     ports:
       - "8081:8081"
+    depends_on:
+      - postgres
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: celeste
+      DB_PASSWORD: secret
+      DB_NAME: microservice_db
 
   gateway:
     build: ./gateway
@@ -31,3 +66,6 @@ services:
       - "3000:3000"
     depends_on:
       - gateway
+
+volumes:
+  postgres_data:
