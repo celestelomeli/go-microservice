@@ -1,126 +1,137 @@
 package main
 
-// Import standard libraries
+// Import packages
 import (
-	"database/sql"       // For using raw SQL queries
-	"encoding/json"      // For encoding/decoding JSON data
-	"fmt"                // For formatted output 
-	"log"                // For logging errors and messages
-	"net/http"           // For building HTTP server and handling requests
-	"strconv"            // For converting string to integer
-	"strings"            // For manipulating strings like URL paths
+	"encoding/json" // For encoding structs to JSON and decoding JSON to structs
+	"fmt"           // For string formatting 
+	"log"           // For logging errors
+	"net/http"      // For creating HTTP servers and routing
+	"os"            // For reading environment variables
+	"strconv"       // For converting string to int
+	"strings"       // For working with strings 
 
-	// GORM packages
-	"gorm.io/driver/sqlite" // SQLite driver for GORM
-	"gorm.io/gorm"          // Go ORM for interacting with DB using structs
-
-	_ "github.com/mattn/go-sqlite3" // SQLite driver for raw SQL use (underscore = side-effect import)
+	"gorm.io/driver/postgres" // GORM PostgreSQL driver
+	"gorm.io/gorm"            // GORM ORM library
 )
 
-// Define struct to represent user data
+/////////////////////////////////////////////////////////////
+// DB Model
+/////////////////////////////////////////////////////////////
+
+// User represents the users table in the database
 type User struct {
-	ID    int    `json:"id" gorm:"primaryKey"` // Primary key (auto-incremented)
-	Name  string `json:"name"`                 // Maps to name column in DB
-	Email string `json:"email"`                // Maps to email column in DB
+	ID    int    `json:"id" gorm:"primaryKey"` // ID as the primary key
+	Name  string `json:"name"`                 // Name field 
+	Email string `json:"email"`                // Email field 
 }
 
-// Declare global DB variables for GORM and raw SQL
-var (
-	db     *gorm.DB // GORM database connection
-	rawDB  *sql.DB  // Raw SQL database connection
-)
+/////////////////////////////////////////////////////////////
+// Global DB Connection
+/////////////////////////////////////////////////////////////
 
-// initDB sets up and connects to SQLite DB using GORM and raw SQL
+var db *gorm.DB // Interacts with the database from handlers
+
+/////////////////////////////////////////////////////////////
+// Initialize Database Connection
+/////////////////////////////////////////////////////////////
+
 func initDB() {
+	// Format PostgreSQL connection string (DSN) using environment variables
+	dsn := fmt.Sprintf(
+		"host=%s user=%s password=%s dbname=%s port=%s sslmode=disable",
+		os.Getenv("DB_HOST"),     // (postgres)
+		os.Getenv("DB_USER"),     // (celeste)
+		os.Getenv("DB_PASSWORD"), // (secret)
+		os.Getenv("DB_NAME"),     // (microservice_db)
+		os.Getenv("DB_PORT"),     // (5432)
+	)
+
+	// Open a GORM connection to the Postgres DB
 	var err error
-
-	// Connect using GORM to SQLite file "users.db"
-	db, err = gorm.Open(sqlite.Open("users.db"), &gorm.Config{})
+	db, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
-		log.Fatal("Failed to connect to GORM DB:", err)
+		log.Fatal("Failed to connect to database:", err)
 	}
 
-	// Auto-migrate the User struct; creates the users table if not present
-	db.AutoMigrate(&User{})
-
-	// Set up a raw SQL connection to the same DB
-	rawDB, err = sql.Open("sqlite3", "users.db")
-	if err != nil {
-		log.Fatal("Failed to connect to raw SQL DB:", err)
+	// Automatically create the users table if it doesn't already exist
+	if err := db.AutoMigrate(&User{}); err != nil {
+		log.Fatal("Failed to auto-migrate users table:", err)
 	}
 
-	// Seed a user if the table is empty
+	// Count how many users exist in the DB
 	var count int64
 	db.Model(&User{}).Count(&count)
+
+	// If the users table is empty, insert a default user
 	if count == 0 {
 		db.Create(&User{Name: "Celeste", Email: "celeste@example.com"})
 	}
 }
 
+/////////////////////////////////////////////////////////////
+// HTTP Handlers
+/////////////////////////////////////////////////////////////
+
 // getAllUsersHandler handles GET requests to /users
-// It uses raw SQL to fetch and return all users as JSON
+// It returns a list of all users as JSON
 func getAllUsersHandler(w http.ResponseWriter, r *http.Request) {
-	// Run a raw SQL query to get all users
-	rows, err := rawDB.Query("SELECT id, name, email FROM users")
-	if err != nil {
-		http.Error(w, "Query failed", http.StatusInternalServerError)
+	var users []User // Create a slice to store users from DB
+
+	// Query all users from the database
+	result := db.Find(&users)
+	if result.Error != nil {
+		http.Error(w, "Failed to fetch users", http.StatusInternalServerError)
 		return
 	}
-	defer rows.Close()
 
-	// Read each row and add to a slice of users
-	var users []User
-	for rows.Next() {
-		var u User
-		if err := rows.Scan(&u.ID, &u.Name, &u.Email); err != nil {
-			http.Error(w, "Row scan failed", http.StatusInternalServerError)
-			return
-		}
-		users = append(users, u)
-	}
-
-	// Respond with the user list as JSON
+	// Set the response header to tell the client we're sending JSON
 	w.Header().Set("Content-Type", "application/json")
+
+	// Encode the users slice into JSON and write it to the response
 	json.NewEncoder(w).Encode(users)
 }
 
 // getUserHandler handles GET requests to /users/{id}
-// uses GORM to fetch a specific user by ID
+// It returns a single user by their ID
 func getUserHandler(w http.ResponseWriter, r *http.Request) {
-	// Extract ID from the URL path
-	//TrimPrefix from "strings" library
+	// Remove "/users/" prefix to extract just the ID
 	idStr := strings.TrimPrefix(r.URL.Path, "/users/")
-	id, err := strconv.Atoi(idStr) // Convert string to int
+
+	// Convert the extracted string to an integer
+	id, err := strconv.Atoi(idStr)
 	if err != nil {
 		http.Error(w, "Invalid user ID", http.StatusBadRequest)
 		return
 	}
 
-	// Use GORM to get the user from DB by ID
-	var user User
+	var user User // A variable to hold the user we find
+
+	// Look up the user by ID using GORM
 	result := db.First(&user, id)
 	if result.Error != nil {
 		http.Error(w, "User not found", http.StatusNotFound)
 		return
 	}
 
-	// Respond with the found user as JSON
+	// Set content type to JSON before responding
 	w.Header().Set("Content-Type", "application/json")
+
+	// Encode the user struct into JSON and write to the response
 	json.NewEncoder(w).Encode(user)
 }
 
-// main sets up the server and route handlers
+/////////////////////////////////////////////////////////////
+// Entry Point
+/////////////////////////////////////////////////////////////
+
 func main() {
-	initDB() // Set up the DB connections
+	initDB() // Initialize DB connection and auto-migrate schema
 
-	// Route for getting all users (raw SQL)
-	http.HandleFunc("/users", getAllUsersHandler)
+	// Register HTTP handlers
+	http.HandleFunc("/users", getAllUsersHandler)   // Route to get all users
+	http.HandleFunc("/users/", getUserHandler)      // Route to get a user by ID
 
-	// Route for getting a user by ID (GORM)
-	http.HandleFunc("/users/", getUserHandler)
-
+	// Start the web server
 	fmt.Println("User service running on port 8083...")
-
-	// Start HTTP server on port 8083
 	log.Fatal(http.ListenAndServe(":8083", nil))
 }
