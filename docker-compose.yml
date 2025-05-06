@@ -1,55 +1,67 @@
 services:
   postgres:
     image: postgres:15
-    restart: always
+    ports:
+      - "5432:5432"
     environment:
       POSTGRES_DB: microservice_db
       POSTGRES_USER: celeste
       POSTGRES_PASSWORD: secret
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U celeste -d microservice_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    # restart: on-failure
 
   userservice:
     build: ./userservice
     ports:
       - "8083:8083"
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     environment:
       DB_HOST: postgres
       DB_PORT: 5432
       DB_USER: celeste
       DB_PASSWORD: secret
       DB_NAME: microservice_db
+    # restart: on-failure
 
   orderservice:
     build: ./orderservice
     ports:
       - "8082:8082"
     depends_on:
-      - productservice
-      - postgres
+      postgres:
+        condition: service_healthy
+      productservice:
+        condition: service_started
     environment:
       DB_HOST: postgres
       DB_PORT: 5432
       DB_USER: celeste
       DB_PASSWORD: secret
       DB_NAME: microservice_db
+    # restart: on-failure
 
   productservice:
     build: ./productservice
     ports:
       - "8081:8081"
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     environment:
       DB_HOST: postgres
       DB_PORT: 5432
       DB_USER: celeste
       DB_PASSWORD: secret
       DB_NAME: microservice_db
+    # restart: on-failure
 
   gateway:
     build: ./gateway
@@ -59,13 +71,15 @@ services:
       - userservice
       - orderservice
       - productservice
+    # restart: on-failure
 
-  frontendservice:  
+  frontendservice:
     build: ./frontendservice
     ports:
       - "3000:3000"
     depends_on:
       - gateway
+    # restart: on-failure
 
 volumes:
   postgres_data:
