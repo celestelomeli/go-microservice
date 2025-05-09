@@ -5,28 +5,29 @@ import (
 	"net/http"            // HTTP server and client functionality
 	"net/http/httputil"   //allows creation of reverse proxies
 	"net/url"             // parsing and structuring URL strings 
+
 )
 
-// proxyHandler returns HTTP handler that forwards requests to specific target server
 func proxyHandler(target string) http.HandlerFunc {
-	// parse target URL string into structured 
-	// url.parse from net/url parses raw URL into structured *url.URL object
-	// url variable will hold parsed structured URL object
 	url, err := url.Parse(target)
-	// From log library, logs error message
-	//fatalf = shortcut for log.Print() + os.Exit(1)
 	if err != nil {
 		log.Fatalf("Failed to parse target URL: %v", err)
 	}
-	
-
-	// creates reverse proxy that knows how to forward requeststo specified host in url variable
 	proxy := httputil.NewSingleHostReverseProxy(url)
 
 	return func(w http.ResponseWriter, r *http.Request) {
-		// tells reverse proxy to take over
-		//reads incoming request (r), sends to backend server, writes 
-		// backend's response back through w 
+		// Set CORS headers
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+		// Handle preflight OPTIONS requests
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		// Forward everything else to the target
 		proxy.ServeHTTP(w, r)
 	}
 }

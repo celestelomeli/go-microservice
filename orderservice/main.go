@@ -7,7 +7,9 @@ import (
 	"log"                 // For logging errors and messages
 	"net/http"            // For building the HTTP server and client
 	"os"                  // For accessing environment variables
-
+    "strings"
+    "strconv"
+    
 	"gorm.io/driver/postgres" // GORM PostgreSQL driver
 	"gorm.io/gorm"            // GORM ORM library
 )
@@ -48,8 +50,10 @@ var db *gorm.DB // Shared DB connection used for all handlers
 // Database initialization
 /////////////////////////////////////////////////////////////
 
+// initDB connects to PostgreSQL using environment variables
+// and auto-migrates the schema to match the Order struct
 func initDB() {
-	// Build the connection string using environment variables
+	// Build the dsn connection string using environment variables
 	dsn := fmt.Sprintf(
 		"host=%s user=%s password=%s dbname=%s port=%s sslmode=disable",
 		os.Getenv("DB_HOST"),
@@ -59,14 +63,14 @@ func initDB() {
 		os.Getenv("DB_PORT"),
 	)
 
-	// Open connection using GORM
+	// Open db onnection using GORM
 	var err error
 	db, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
 		log.Fatal("Failed to connect to database:", err)
 	}
 
-	// Automatically create or update the "orders" table
+	// Automatically create/update the "orders" table to match Order struct
 	if err := db.AutoMigrate(&Order{}); err != nil {
 		log.Fatal("Failed to migrate database schema:", err)
 	}
@@ -76,6 +80,8 @@ func initDB() {
 // HTTP Handlers
 /////////////////////////////////////////////////////////////
 
+// createOrderHandler handles POST /orders
+// Validates request, fetches product/user, calculates total, saves to DB
 func createOrderHandler(w http.ResponseWriter, r *http.Request) {
 	// Only allow POST requests
 	if r.Method != http.MethodPost {
@@ -104,7 +110,7 @@ func createOrderHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Fetch user from userservice to confirm they exist
+	// Check if user exists (via userservice)
 	_, err = getUser(order.UserID)
 	if err != nil {
 		http.Error(w, "Invalid user: "+err.Error(), http.StatusBadRequest)
@@ -121,19 +127,21 @@ func createOrderHandler(w http.ResponseWriter, r *http.Request) {
 	// Calculate total cost (price * quantity)
 	order.Total = product.Price * float64(order.Quantity)
 
-	// Insert the new order into the database
+	// Save order into the database
 	result := db.Create(&order)
 	if result.Error != nil {
 		http.Error(w, "Failed to create order", http.StatusInternalServerError)
 		return
 	}
 
-	// Send back the created order as JSON
+	// Return created order as JSON
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(order)
 }
 
+// getOrdersHandler handles GET /orders or /orders/
+// It returns all stored orders as a JSON array
 func getOrdersHandler(w http.ResponseWriter, r *http.Request) {
 	// Slice to hold fetched orders
 	var orders []Order
@@ -150,10 +158,121 @@ func getOrdersHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(orders)
 }
 
+// getOrderByIDHandler handles GET /orders/{id}
+// It parses the order ID from the path, queries the DB, and returns the order
+func getOrderByIDHandler(w http.ResponseWriter, r *http.Request) {
+	// Extract order ID string from URL path (e.g., "/orders/3" → "3")
+	idStr := strings.TrimPrefix(r.URL.Path, "/orders/")
+
+	// Convert ID string to an integer
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		http.Error(w, "Invalid order ID", http.StatusBadRequest)
+		return
+	}
+
+	// Query DB for the order with matching ID
+	var order Order
+	result := db.First(&order, id)
+	if result.Error != nil {
+		http.Error(w, "Order not found", http.StatusNotFound)
+		return
+	}
+
+	// Return the order as JSON
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(order)
+}
+
+
+// deleteOrderHandler handles DELETE /orders/{id}
+// It deletes the order with the given ID from the DB
+func deleteOrderHandler(w http.ResponseWriter, r *http.Request) {
+	// Extract order ID from the path
+	idStr := strings.TrimPrefix(r.URL.Path, "/orders/")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		http.Error(w, "Invalid order ID", http.StatusBadRequest)
+		return
+	}
+
+	// Delete the order from the DB
+	result := db.Delete(&Order{}, id)
+	if result.Error != nil {
+		http.Error(w, "Failed to delete order", http.StatusInternalServerError)
+		return
+	}
+
+	// Return 204 No Content on success (no body needed)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// updateOrderHandler handles PUT /orders/{id}
+func updateOrderHandler(w http.ResponseWriter, r *http.Request) {
+	idStr := strings.TrimPrefix(r.URL.Path, "/orders/")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		http.Error(w, "Invalid order ID", http.StatusBadRequest)
+		return
+	}
+
+	// Find the order by ID
+	var existing Order
+	result := db.First(&existing, id)
+	if result.Error != nil {
+		http.Error(w, "Order not found", http.StatusNotFound)
+		return
+	}
+
+	// Read and parse request body for update data
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Error reading request body", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	var updateData Order
+	if err := json.Unmarshal(body, &updateData); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	// Validate required fields
+	if updateData.ProductID == 0 || updateData.Quantity == 0 {
+		http.Error(w, "ProductID and Quantity are required", http.StatusBadRequest)
+		return
+	}
+
+	// Fetch product to recalculate the total
+	product, err := getProduct(updateData.ProductID)
+	if err != nil {
+		http.Error(w, "Failed to fetch product info: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Update fields
+	existing.ProductID = updateData.ProductID
+	existing.Quantity = updateData.Quantity
+	existing.Total = product.Price * float64(updateData.Quantity)
+
+	// Save updated order
+	saveResult := db.Save(&existing)
+	if saveResult.Error != nil {
+		http.Error(w, "Failed to update order", http.StatusInternalServerError)
+		return
+	}
+
+	// Return updated order
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(existing)
+}
+
 /////////////////////////////////////////////////////////////
 // External API calls to other microservices
 /////////////////////////////////////////////////////////////
 
+// getProduct fetches product info from productservice using its REST API
 func getProduct(productID int) (Product, error) {
 	// Build the URL for the productservice endpoint
 	url := fmt.Sprintf("http://productservice:8081/products/%d", productID)
@@ -187,6 +306,7 @@ func getProduct(productID int) (Product, error) {
 	return product, nil
 }
 
+// getUser fetches user info from userservice using its REST API
 func getUser(userID int) (User, error) {
 	// Build the URL to call userservice
 	url := fmt.Sprintf("http://userservice:8083/users/%d", userID)
@@ -219,6 +339,45 @@ func getUser(userID int) (User, error) {
 }
 
 /////////////////////////////////////////////////////////////
+// Unified Router & Server Entry Point
+/////////////////////////////////////////////////////////////
+
+
+// ordersRouter handles multiple HTTP methods and path variations for /orders
+func ordersRouter(w http.ResponseWriter, r *http.Request) {
+	switch {
+	// Handle POST /orders → create a new order
+	case r.Method == http.MethodPost && r.URL.Path == "/orders":
+		createOrderHandler(w, r)
+		return
+
+	// Handle GET /orders or /orders/ → return all orders
+	case r.Method == http.MethodGet && (r.URL.Path == "/orders" || r.URL.Path == "/orders/"):
+		getOrdersHandler(w, r)
+		return
+
+	// Handle GET /orders/{id} → return a specific order by ID
+	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/orders/"):
+		getOrderByIDHandler(w, r)
+		return
+
+	// Handle DELETE /orders/{id} → delete a specific order by ID
+	case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/orders/"):
+		deleteOrderHandler(w, r)
+		return
+    
+    // PUT /orders/{id} → update an existing order
+    case r.Method == http.MethodPut && strings.HasPrefix(r.URL.Path, "/orders/"):
+	    updateOrderHandler(w, r)
+	    return
+
+	// Any other method/path combo is not allowed
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+/////////////////////////////////////////////////////////////
 // Main entry point
 /////////////////////////////////////////////////////////////
 
@@ -226,9 +385,9 @@ func main() {
 	// Connect to database and run auto-migrations
 	initDB()
 
-	// Register routes for creating and fetching orders
-	http.HandleFunc("/orders", createOrderHandler)
-	http.HandleFunc("/orders/", getOrdersHandler)
+	// Register unified route handler for both /orders and /orders/
+	http.HandleFunc("/orders", ordersRouter)
+	http.HandleFunc("/orders/", ordersRouter)
 
 	// Start HTTP server on port 8082
 	fmt.Println("Order Service listening on port 8082")
