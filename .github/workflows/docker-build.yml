@@ -1,0 +1,38 @@
+# Workflow checks if each Dockerfile in your microservices builds correctly
+
+name: Docker Build Check  # The name of this GitHub Actions workflow
+
+on:
+  push:           # Run this workflow when code is pushed to the repo
+    branches: [ main ]  # Only if the push is to the 'main' branch
+  pull_request:   # Also run this workflow when a PR is opened to the 'main' branch
+    branches: [ main ]
+
+jobs:
+  build-services:           # Name of the job 
+    runs-on: ubuntu-latest  # The OS the job will run on 
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      # This pulls down repo's code so the workflow can use it
+
+    - name: Build userservice
+      run: docker build -t userservice ./userservice
+      # Builds the Dockerfile inside the 'userservice' directory
+
+    - name: Build productservice
+      run: docker build -t productservice ./productservice
+      # Builds the Dockerfile inside the 'productservice' folder
+
+    - name: Build orderservice
+      run: docker build -t orderservice ./orderservice
+      # Builds the Dockerfile inside the 'orderservice' folder
+
+    - name: Build gateway
+      run: docker build -t gateway ./gateway
+      # Builds the Dockerfile inside the 'gateway' folder
+
+    - name: Build frontendservice
+      run: docker build -t frontendservice ./frontendservice
+      # Builds the Dockerfile inside the 'frontendservice' folder
