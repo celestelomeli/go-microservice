@@ -1,72 +1,198 @@
 package main
 
 import (
-	"fmt"          // For formatted I/O    
-	"log"          // For logging server events and errors
-	"net/http"     // For building HTTP web server
+	"fmt"      // For printing formatted strings to output
+	"log"      // For logging info and errors 
+	"net/http" // For running an HTTP server in Go
 )
 
-// Register a route handler function for root path "/"
-// Whenever someone accesses the root, function will be triggered 
 func main() {
+	// Register handler function for the root URL "/"
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		// Set response header to tell browser sending back HTML
+		// Set content type of the HTTP response to HTML
 		w.Header().Set("Content-Type", "text/html")
-		
-		// Write HTML content into the HTTP response/browser
-		// This will render the webpage
-		fmt.Fprintln(w, `
-			<!DOCTYPE html>
-			<html lang="en">
-			<head>
-				<meta charset="UTF-8">
-				<title>Welcome</title>
-				<style>
-					/* Style the whole page */
-					body {
-						display: flex;                        /* Use Flexbox to center content */
-						justify-content: center;              /* Center horizontally */
-						align-items: center;                  /* Center vertically */
-						height: 100vh;                        /* Full height */
-						margin: 0;                            /* Remove default margin */
-						font-family: Arial, sans-serif;       /* Set font */
-						background: linear-gradient(-45deg, #2193b0, #6dd5ed, #b2fefa, #0f2027); */ Gradient background */
-						background-size: 400% 400%;           /* Make background larger for animation */
-						animation: gradientBG 15s ease infinite;  /* Animate background */
-					}
-					/* Style the heading (h1) */	
-					h1 {
-						color: #fff;                                /* White text */
-						font-size: 3em;
-						text-shadow: 4px 4px 8px rgba(0, 0, 0, 0.6); /* Soft shadow behind text for better readability */
-						opacity: 0;                                  /* Start invisible */
-						animation: fadeIn 2s ease-in-out forwards;   /* Fade in animation over 2 seconds */
-					}
-					/* Define the fade-in animation for the h1 */
-					@keyframes fadeIn {
-						from { opacity: 0; }    /* Start fully transparent */
-						to { opacity: 1; }      /* End fully opaque */
-					}
-					/* Define the background animation for the body */	
-					@keyframes gradientBG {
-						0% { background-position: 0% 50%; }    /* Start on left */
-						50% { background-position: 100% 50%; } /* Move to right */
-						100% { background-position: 0% 50%; }  /* Move back to left */
-					}
-				</style>
-			</head>
-			<body>
-				<h1>Welcome to my Go App</h1> <!-- This is the big welcome text -->
-			</body>
-			</html>
-		`)
-	})
-	// Log that the server has started
-	log.Println("Frontend service running on :3000")
-	// Start the HTTP server on port 3000
-	// If there is an error starting the server, log the error and exit
-	err := http.ListenAndServe(":3000", nil)
-	if err != nil {
-		log.Fatal(err)
+
+		// Send HTML + CSS + JavaScript as the HTTP response
+		fmt.Fprint(w, `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<title>Go App Frontend</title>
+	<style>
+		/* General styling */
+		body {
+			font-family: Arial;
+			padding: 2rem;
+			background: #f9f9f9;
+		}
+
+		/* Form styling */
+		form {
+			background: white;
+			padding: 1rem;
+			margin-bottom: 2rem;
+			border-radius: 8px;
+			box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+			max-width: 400px;
+		}
+
+		/* Label spacing */
+		label {
+			display: block;
+			margin-top: 1rem;
+		}
+
+		/* Input and dropdown styling */
+		input, select {
+			width: 100%;
+			padding: 0.5rem;
+			margin-top: 0.3rem;
+		}
+
+		/* Button styling */
+		button {
+			margin-top: 1rem;
+			padding: 0.7rem;
+			background-color: #007bff;
+			color: white;
+			border: none;
+			border-radius: 4px;
+			cursor: pointer;
+		}
+
+		/* <pre> tag formats long text, keeps spacing */
+		pre {
+			background: #eee;
+			padding: 1rem;
+			border-radius: 6px;
+			white-space: pre-wrap; /* Preserve whitespace and wrap long lines */
+		}
+	</style>
+</head>
+<body>
+
+	<!-- USER CREATION FORM -->
+	<h2>Create a User</h2>
+	<form id="userForm">
+		<label>Name: <input type="text" id="name" required /></label>
+		<label>Email: <input type="email" id="email" required /></label>
+		<button type="submit">Create User</button>
+	</form>
+	<pre id="userResponse"></pre> <!-- Shows JSON response of created user -->
+
+	<!-- ORDER CREATION FORM -->
+	<h2>Place an Order</h2>
+	<form id="orderForm">
+		<label>User:
+			<select id="user_id"></select> <!-- Populated with user list -->
+		</label>
+		<label>Product:
+			<select id="product_id"></select> <!-- Populated with product list -->
+		</label>
+		<label>Quantity:
+			<input type="number" id="quantity" value="1" min="1" required />
+		</label>
+		<button type="submit">Submit Order</button>
+	</form>
+	<pre id="orderResponse"></pre> <!-- JSON response of created order -->
+
+	<!-- LOAD ALL ORDERS -->
+	<h2>View All Orders</h2>
+	<button id="loadOrdersBtn">Load Orders</button>
+	<pre id="ordersList"></pre> <!-- Shows full list of orders -->
+
+<script>
+	// Load all users from backend and populate user dropdown
+	async function loadUsers() {
+		const res = await fetch("http://localhost:8080/users");
+		const users = await res.json();
+		const userSelect = document.getElementById("user_id");
+		userSelect.innerHTML = ""; // Clears existing options
+
+		// Add each user as a <option>
+		users.forEach(u => {
+			const option = document.createElement("option");
+			option.value = u.id;
+			option.textContent = u.name + " (" + u.email + ")";
+			userSelect.appendChild(option);
+		});
 	}
+
+	// Load all products from backend and populate product dropdown
+	async function loadProducts() {
+		const res = await fetch("http://localhost:8080/products");
+		const products = await res.json();
+		const select = document.getElementById("product_id");
+		select.innerHTML = ""; // Clears existing options
+
+		// Add each product as a <option>
+		products.forEach(p => {
+			const option = document.createElement("option");
+			option.value = p.id;
+			option.textContent = p.name + " ($" + p.price + ")";
+			select.appendChild(option);
+		});
+	}
+
+	// On user form submit, create new user
+	document.getElementById("userForm").addEventListener("submit", async function(e) {
+		e.preventDefault(); // Prevent default form submission
+
+		const name = document.getElementById("name").value;
+		const email = document.getElementById("email").value;
+
+		const res = await fetch("http://localhost:8080/users", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ name, email }) // Send data as JSON
+		});
+
+		const data = await res.json();
+
+		// Show formatted JSON response in <pre> tag
+		document.getElementById("userResponse").textContent = JSON.stringify(data, null, 2);
+
+		await loadUsers(); // Reload users to update dropdown
+	});
+
+	// On order form submit, create new order
+	document.getElementById("orderForm").addEventListener("submit", async function(e) {
+		e.preventDefault();
+
+		const user_id = Number(document.getElementById("user_id").value);
+		const product_id = Number(document.getElementById("product_id").value);
+		const quantity = Number(document.getElementById("quantity").value);
+
+		const res = await fetch("http://localhost:8080/orders", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ user_id, product_id, quantity })
+		});
+
+		const data = await res.json();
+
+		// Pretty print JSON (null = include all fields, 2 = indent spacing)
+		document.getElementById("orderResponse").textContent = JSON.stringify(data, null, 2);
+	});
+
+	// On click "Load Orders" button, fetch all orders
+	document.getElementById("loadOrdersBtn").addEventListener("click", async () => {
+		const res = await fetch("http://localhost:8080/orders");
+		const data = await res.json();
+		document.getElementById("ordersList").textContent = JSON.stringify(data, null, 2);
+	});
+
+	// Load users and products when the page first loads
+	loadUsers();
+	loadProducts();
+</script>
+</body>
+</html>
+`)
+	})
+
+	// Log to console and run server on port 3000
+	log.Println("Frontend service running on :3000")
+	log.Fatal(http.ListenAndServe(":3000", nil)) // Crash on error
 }

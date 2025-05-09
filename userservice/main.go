@@ -119,6 +119,35 @@ func getUserHandler(w http.ResponseWriter, r *http.Request) {
 	// Encode the user struct into JSON and write to the response
 	json.NewEncoder(w).Encode(user)
 }
+// createUserHandler handles POST requests to /users
+// It creates a new user from the JSON request body
+func createUserHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var user User
+	if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if user.Name == "" || user.Email == "" {
+		http.Error(w, "Name and email are required", http.StatusBadRequest)
+		return
+	}
+
+	result := db.Create(&user)
+	if result.Error != nil {
+		http.Error(w, "Failed to create user", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(user)
+}
 
 /////////////////////////////////////////////////////////////
 // Entry Point
@@ -127,11 +156,31 @@ func getUserHandler(w http.ResponseWriter, r *http.Request) {
 func main() {
 	initDB() // Initialize DB connection and auto-migrate schema
 
-	// Register HTTP handlers
-	http.HandleFunc("/users", getAllUsersHandler)   // Route to get all users
-	http.HandleFunc("/users/", getUserHandler)      // Route to get a user by ID
+	// Register a route handler for the "/users" path.
+	// Defines how the server should respond when a request is made to /users
+	http.HandleFunc("/users", func(w http.ResponseWriter, r *http.Request) {
+		// If the incoming HTTP request is a GET request,
+		// call the getAllUsersHandler to fetch and return all users.
+		if r.Method == http.MethodGet {
+			getAllUsersHandler(w, r)
+
+		// If the incoming HTTP request is a POST request,
+		// call the createUserHandler to create and insert a new user into DB
+		} else if r.Method == http.MethodPost {
+			createUserHandler(w, r)
+
+		// If the method is neither GET nor POST (e.g., PUT, DELETE),
+		// respond with a 405 Method Not Allowed error and message.
+		} else {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
+	// Register a route handler to get a specific user by ID (e.g., /users/3)
+	http.HandleFunc("/users/", getUserHandler)
 
 	// Start the web server
 	fmt.Println("User service running on port 8083...")
 	log.Fatal(http.ListenAndServe(":8083", nil))
 }
+
