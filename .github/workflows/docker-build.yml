@@ -3,8 +3,6 @@
 name: Docker Build Check  # The name of this GitHub Actions workflow
 
 on:
-  push:           # Run this workflow when code is pushed to the repo
-    branches: [ main ]  # Only if the push is to the 'main' branch
   pull_request:   # Also run this workflow when a PR is opened to the 'main' branch
     branches: [ main ]
 
