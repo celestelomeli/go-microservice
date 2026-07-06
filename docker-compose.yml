@@ -2,19 +2,20 @@ services:
   postgres:
     image: postgres:15
     ports:
-      - "5432:5432"
+      # Host port 5435 to avoid colliding with other local Postgres containers;
+      # services on the compose network still reach it at postgres:5432
+      - "5435:5432"
     environment:
       POSTGRES_DB: microservice_db
-      POSTGRES_USER: celeste
+      POSTGRES_USER: appuser
       POSTGRES_PASSWORD: secret
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U celeste -d microservice_db"]
+      test: ["CMD-SHELL", "pg_isready -U appuser -d microservice_db"]
       interval: 5s
       timeout: 5s
       retries: 5
-    # restart: on-failure
 
   userservice:
     build: ./userservice
@@ -26,10 +27,9 @@ services:
     environment:
       DB_HOST: postgres
       DB_PORT: 5432
-      DB_USER: celeste
+      DB_USER: appuser
       DB_PASSWORD: secret
       DB_NAME: microservice_db
-    # restart: on-failure
 
   orderservice:
     build: ./orderservice
@@ -43,10 +43,9 @@ services:
     environment:
       DB_HOST: postgres
       DB_PORT: 5432
-      DB_USER: celeste
+      DB_USER: appuser
       DB_PASSWORD: secret
       DB_NAME: microservice_db
-    # restart: on-failure
 
   productservice:
     build: ./productservice
@@ -58,10 +57,9 @@ services:
     environment:
       DB_HOST: postgres
       DB_PORT: 5432
-      DB_USER: celeste
+      DB_USER: appuser
       DB_PASSWORD: secret
       DB_NAME: microservice_db
-    # restart: on-failure
 
   gateway:
     build: ./gateway
@@ -71,15 +69,14 @@ services:
       - userservice
       - orderservice
       - productservice
-    # restart: on-failure
 
   frontendservice:
     build: ./frontendservice
     ports:
-      - "3000:3000"
+      # Host port 3001 to avoid colliding with other local containers on 3000
+      - "3001:3000"
     depends_on:
       - gateway
-    # restart: on-failure
 
 volumes:
   postgres_data:
