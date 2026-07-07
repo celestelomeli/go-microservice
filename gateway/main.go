@@ -6,6 +6,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"time"
 )
 
 // envOr returns the env value for key, or fallback when unset;
@@ -62,5 +63,14 @@ func main() {
 	http.HandleFunc("/users/", proxyHandler(userURL))
 
 	log.Println("API Gateway listening on port 8080")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	// WriteTimeout is generous because the gateway waits on downstream
+	// services: an order creation can legitimately take several seconds
+	// while orderservice calls its neighbors. An upstream's patience must
+	// exceed its downstreams' worst case.
+	server := &http.Server{
+		Addr:         ":8080",
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 30 * time.Second,
+	}
+	log.Fatal(server.ListenAndServe())
 }

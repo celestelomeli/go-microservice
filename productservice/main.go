@@ -152,5 +152,10 @@ func main() {
 	http.HandleFunc("/products/", getProductHandler)
 
 	log.Println("Product Service listening on port 8081")
-	log.Fatal(http.ListenAndServe(":8081", nil))
+	server := &http.Server{
+		Addr:         ":8081",
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Second,
+	}
+	log.Fatal(server.ListenAndServe())
 }

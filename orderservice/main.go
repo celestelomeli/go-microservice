@@ -55,6 +55,11 @@ func envOr(key, fallback string) string {
 	return fallback
 }
 
+// httpClient is used for all calls to other services. The timeout keeps a
+// hung neighbor from stalling order requests indefinitely (the default
+// http.Client waits forever).
+var httpClient = &http.Client{Timeout: 5 * time.Second}
+
 func initDB() {
 	dsn := fmt.Sprintf(
 		"host=%s user=%s password=%s dbname=%s port=%s sslmode=disable",
@@ -246,7 +251,7 @@ func updateOrderHandler(w http.ResponseWriter, r *http.Request) {
 func getProduct(productID int) (Product, error) {
 	url := fmt.Sprintf("%s/products/%d", productServiceURL, productID)
 
-	resp, err := http.Get(url)
+	resp, err := httpClient.Get(url)
 	if err != nil {
 		return Product{}, fmt.Errorf("error making request: %w", err)
 	}
@@ -273,7 +278,7 @@ func getProduct(productID int) (Product, error) {
 func getUser(userID int) (User, error) {
 	url := fmt.Sprintf("%s/users/%d", userServiceURL, userID)
 
-	resp, err := http.Get(url)
+	resp, err := httpClient.Get(url)
 	if err != nil {
 		return User{}, fmt.Errorf("error calling user service: %w", err)
 	}
@@ -345,7 +350,10 @@ func main() {
 	http.HandleFunc("/orders/", ordersRouter)
 
 	log.Println("Order Service listening on port 8082")
-	if err := http.ListenAndServe(":8082", nil); err != nil {
-		log.Fatal(err)
+	server := &http.Server{
+		Addr:         ":8082",
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Second,
 	}
+	log.Fatal(server.ListenAndServe())
 }

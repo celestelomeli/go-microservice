@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 )
 
 func main() {
@@ -174,5 +175,10 @@ func main() {
 	})
 
 	log.Println("Frontend service running on :3000")
-	log.Fatal(http.ListenAndServe(":3000", nil))
+	server := &http.Server{
+		Addr:         ":3000",
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Second,
+	}
+	log.Fatal(server.ListenAndServe())
 }

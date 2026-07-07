@@ -151,6 +151,11 @@ func main() {
 
 	http.HandleFunc("/users/", getUserHandler)
 
+	server := &http.Server{
+		Addr:         ":8083",
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Second,
+	}
 	log.Println("User service running on port 8083")
-	log.Fatal(http.ListenAndServe(":8083", nil))
+	log.Fatal(server.ListenAndServe())
 }
