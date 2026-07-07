@@ -38,11 +38,20 @@ func proxyHandler(target string) http.HandlerFunc {
 	}
 }
 
+// healthzHandler: the gateway has no dependencies of its own to check
+// (a backend being down is that backend's problem, reported per-request
+// as 502), so healthy just means alive and serving.
+func healthzHandler(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("ok"))
+}
+
 func main() {
 	productURL := envOr("PRODUCT_SERVICE_URL", "http://productservice:8081")
 	orderURL := envOr("ORDER_SERVICE_URL", "http://orderservice:8082")
 	userURL := envOr("USER_SERVICE_URL", "http://userservice:8083")
 
+	http.HandleFunc("/healthz", healthzHandler)
 	http.HandleFunc("/products", proxyHandler(productURL))
 	http.HandleFunc("/products/", proxyHandler(productURL))
 

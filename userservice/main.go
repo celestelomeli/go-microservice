@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -115,9 +117,28 @@ func createUserHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(user)
 }
 
+// healthzHandler reports whether the service can do its job: alive and
+// able to reach the database. The ping gets a short deadline so a hung
+// DB connection makes the check fail instead of hang.
+func healthzHandler(w http.ResponseWriter, r *http.Request) {
+	sqlDB, err := db.DB()
+	if err == nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+		err = sqlDB.PingContext(ctx)
+	}
+	if err != nil {
+		http.Error(w, "database unreachable", http.StatusServiceUnavailable)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("ok"))
+}
+
 func main() {
 	initDB()
 
+	http.HandleFunc("/healthz", healthzHandler)
 	http.HandleFunc("/users", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
 			getAllUsersHandler(w, r)
