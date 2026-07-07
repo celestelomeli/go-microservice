@@ -1,36 +1,69 @@
-# Workflow checks if each Dockerfile in your microservices builds correctly
-
-name: Docker Build Check  # The name of this GitHub Actions workflow
+name: CI
 
 on:
-  pull_request:   # Also run this workflow when a PR is opened to the 'main' branch
+  pull_request:
+    branches: [ main ]
+  push:
     branches: [ main ]
 
 jobs:
-  build-services:           # Name of the job 
-    runs-on: ubuntu-latest  # The OS the job will run on 
-
+  go-checks:
+    runs-on: ubuntu-latest
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
-      # This pulls down repo's code so the workflow can use it
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Build userservice
-      run: docker build -t userservice ./userservice
-      # Builds the Dockerfile inside the 'userservice' directory
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
 
-    - name: Build productservice
-      run: docker build -t productservice ./productservice
-      # Builds the Dockerfile inside the 'productservice' folder
+      - name: Format, vet, and test all services
+        run: |
+          for d in gateway userservice orderservice productservice frontendservice; do
+            echo "== $d =="
+            cd "$d"
+            unformatted=$(gofmt -l .)
+            if [ -n "$unformatted" ]; then
+              echo "gofmt needed on:" "$unformatted"
+              exit 1
+            fi
+            go vet ./...
+            go test ./...
+            cd ..
+          done
 
-    - name: Build orderservice
-      run: docker build -t orderservice ./orderservice
-      # Builds the Dockerfile inside the 'orderservice' folder
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          # Full history so gitleaks scans every commit, not just the newest
+          fetch-depth: 0
 
-    - name: Build gateway
-      run: docker build -t gateway ./gateway
-      # Builds the Dockerfile inside the 'gateway' folder
+      - name: Scan for secrets
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Build frontendservice
-      run: docker build -t frontendservice ./frontendservice
-      # Builds the Dockerfile inside the 'frontendservice' folder
+  build-services:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build userservice
+        run: docker build -t userservice ./userservice
+
+      - name: Build productservice
+        run: docker build -t productservice ./productservice
+
+      - name: Build orderservice
+        run: docker build -t orderservice ./orderservice
+
+      - name: Build gateway
+        run: docker build -t gateway ./gateway
+
+      - name: Build frontendservice
+        run: docker build -t frontendservice ./frontendservice

@@ -39,6 +39,20 @@ type User struct {
 
 var db *gorm.DB
 
+// Service URLs are overridable via env for other environments and tests;
+// defaults match the docker-compose service names.
+var (
+	productServiceURL = envOr("PRODUCT_SERVICE_URL", "http://productservice:8081")
+	userServiceURL    = envOr("USER_SERVICE_URL", "http://userservice:8083")
+)
+
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
 func initDB() {
 	dsn := fmt.Sprintf(
 		"host=%s user=%s password=%s dbname=%s port=%s sslmode=disable",
@@ -228,7 +242,7 @@ func updateOrderHandler(w http.ResponseWriter, r *http.Request) {
 
 // getProduct fetches product info from productservice.
 func getProduct(productID int) (Product, error) {
-	url := fmt.Sprintf("http://productservice:8081/products/%d", productID)
+	url := fmt.Sprintf("%s/products/%d", productServiceURL, productID)
 
 	resp, err := http.Get(url)
 	if err != nil {
@@ -255,7 +269,7 @@ func getProduct(productID int) (Product, error) {
 
 // getUser fetches user info from userservice.
 func getUser(userID int) (User, error) {
-	url := fmt.Sprintf("http://userservice:8083/users/%d", userID)
+	url := fmt.Sprintf("%s/users/%d", userServiceURL, userID)
 
 	resp, err := http.Get(url)
 	if err != nil {
