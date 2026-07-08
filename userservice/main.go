@@ -1,14 +1,18 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
+	"time"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -115,9 +119,28 @@ func createUserHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(user)
 }
 
+// healthzHandler reports whether the service can do its job: alive and
+// able to reach the database. The ping gets a short deadline so a hung
+// DB connection makes the check fail instead of hang.
+func healthzHandler(w http.ResponseWriter, r *http.Request) {
+	sqlDB, err := db.DB()
+	if err == nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+		err = sqlDB.PingContext(ctx)
+	}
+	if err != nil {
+		http.Error(w, "database unreachable", http.StatusServiceUnavailable)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("ok"))
+}
+
 func main() {
 	initDB()
 
+	http.HandleFunc("/healthz", healthzHandler)
 	http.HandleFunc("/users", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
 			getAllUsersHandler(w, r)
@@ -130,6 +153,33 @@ func main() {
 
 	http.HandleFunc("/users/", getUserHandler)
 
+	server := &http.Server{
+		Addr:         ":8083",
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Second,
+	}
 	log.Println("User service running on port 8083")
-	log.Fatal(http.ListenAndServe(":8083", nil))
+	runWithGracefulShutdown(server)
+}
+
+// runWithGracefulShutdown serves until SIGTERM/SIGINT, then gives in-flight
+// requests up to 10s to finish so deploys don't cut anyone off mid-request.
+func runWithGracefulShutdown(server *http.Server) {
+	go func() {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatal(err)
+		}
+	}()
+
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, syscall.SIGTERM, syscall.SIGINT)
+	<-stop
+
+	log.Println("shutting down: waiting for in-flight requests")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := server.Shutdown(ctx); err != nil {
+		log.Fatal("forced shutdown:", err)
+	}
+	log.Println("shutdown complete")
 }

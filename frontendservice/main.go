@@ -1,12 +1,22 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 )
 
 func main() {
+	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("ok"))
+	})
+
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 
@@ -169,5 +179,32 @@ func main() {
 	})
 
 	log.Println("Frontend service running on :3000")
-	log.Fatal(http.ListenAndServe(":3000", nil))
+	server := &http.Server{
+		Addr:         ":3000",
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Second,
+	}
+	runWithGracefulShutdown(server)
+}
+
+// runWithGracefulShutdown serves until SIGTERM/SIGINT, then gives in-flight
+// requests up to 10s to finish so deploys don't cut anyone off mid-request.
+func runWithGracefulShutdown(server *http.Server) {
+	go func() {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatal(err)
+		}
+	}()
+
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, syscall.SIGTERM, syscall.SIGINT)
+	<-stop
+
+	log.Println("shutting down: waiting for in-flight requests")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := server.Shutdown(ctx); err != nil {
+		log.Fatal("forced shutdown:", err)
+	}
+	log.Println("shutdown complete")
 }

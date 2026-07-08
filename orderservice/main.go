@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -8,8 +9,11 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
+	"time"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -52,6 +56,11 @@ func envOr(key, fallback string) string {
 	}
 	return fallback
 }
+
+// httpClient is used for all calls to other services. The timeout keeps a
+// hung neighbor from stalling order requests indefinitely (the default
+// http.Client waits forever).
+var httpClient = &http.Client{Timeout: 5 * time.Second}
 
 func initDB() {
 	dsn := fmt.Sprintf(
@@ -244,7 +253,7 @@ func updateOrderHandler(w http.ResponseWriter, r *http.Request) {
 func getProduct(productID int) (Product, error) {
 	url := fmt.Sprintf("%s/products/%d", productServiceURL, productID)
 
-	resp, err := http.Get(url)
+	resp, err := httpClient.Get(url)
 	if err != nil {
 		return Product{}, fmt.Errorf("error making request: %w", err)
 	}
@@ -271,7 +280,7 @@ func getProduct(productID int) (Product, error) {
 func getUser(userID int) (User, error) {
 	url := fmt.Sprintf("%s/users/%d", userServiceURL, userID)
 
-	resp, err := http.Get(url)
+	resp, err := httpClient.Get(url)
 	if err != nil {
 		return User{}, fmt.Errorf("error calling user service: %w", err)
 	}
@@ -317,14 +326,58 @@ func ordersRouter(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// healthzHandler reports whether the service can do its job: alive and
+// able to reach the database. The ping gets a short deadline so a hung
+// DB connection makes the check fail instead of hang.
+func healthzHandler(w http.ResponseWriter, r *http.Request) {
+	sqlDB, err := db.DB()
+	if err == nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+		err = sqlDB.PingContext(ctx)
+	}
+	if err != nil {
+		http.Error(w, "database unreachable", http.StatusServiceUnavailable)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("ok"))
+}
+
 func main() {
 	initDB()
 
+	http.HandleFunc("/healthz", healthzHandler)
 	http.HandleFunc("/orders", ordersRouter)
 	http.HandleFunc("/orders/", ordersRouter)
 
 	log.Println("Order Service listening on port 8082")
-	if err := http.ListenAndServe(":8082", nil); err != nil {
-		log.Fatal(err)
+	server := &http.Server{
+		Addr:         ":8082",
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Second,
 	}
+	runWithGracefulShutdown(server)
+}
+
+// runWithGracefulShutdown serves until SIGTERM/SIGINT, then gives in-flight
+// requests up to 10s to finish so deploys don't cut anyone off mid-request.
+func runWithGracefulShutdown(server *http.Server) {
+	go func() {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatal(err)
+		}
+	}()
+
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, syscall.SIGTERM, syscall.SIGINT)
+	<-stop
+
+	log.Println("shutting down: waiting for in-flight requests")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := server.Shutdown(ctx); err != nil {
+		log.Fatal("forced shutdown:", err)
+	}
+	log.Println("shutdown complete")
 }

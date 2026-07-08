@@ -1,11 +1,15 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 )
 
 // envOr returns the env value for key, or fallback when unset;
@@ -38,11 +42,20 @@ func proxyHandler(target string) http.HandlerFunc {
 	}
 }
 
+// healthzHandler: the gateway has no dependencies of its own to check
+// (a backend being down is that backend's problem, reported per-request
+// as 502), so healthy just means alive and serving.
+func healthzHandler(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("ok"))
+}
+
 func main() {
 	productURL := envOr("PRODUCT_SERVICE_URL", "http://productservice:8081")
 	orderURL := envOr("ORDER_SERVICE_URL", "http://orderservice:8082")
 	userURL := envOr("USER_SERVICE_URL", "http://userservice:8083")
 
+	http.HandleFunc("/healthz", healthzHandler)
 	http.HandleFunc("/products", proxyHandler(productURL))
 	http.HandleFunc("/products/", proxyHandler(productURL))
 
@@ -53,5 +66,36 @@ func main() {
 	http.HandleFunc("/users/", proxyHandler(userURL))
 
 	log.Println("API Gateway listening on port 8080")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	// WriteTimeout is generous because the gateway waits on downstream
+	// services: an order creation can legitimately take several seconds
+	// while orderservice calls its neighbors. An upstream's patience must
+	// exceed its downstreams' worst case.
+	server := &http.Server{
+		Addr:         ":8080",
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 30 * time.Second,
+	}
+	runWithGracefulShutdown(server)
+}
+
+// runWithGracefulShutdown serves until SIGTERM/SIGINT, then gives in-flight
+// requests up to 10s to finish so deploys don't cut anyone off mid-request.
+func runWithGracefulShutdown(server *http.Server) {
+	go func() {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatal(err)
+		}
+	}()
+
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, syscall.SIGTERM, syscall.SIGINT)
+	<-stop
+
+	log.Println("shutting down: waiting for in-flight requests")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := server.Shutdown(ctx); err != nil {
+		log.Fatal("forced shutdown:", err)
+	}
+	log.Println("shutdown complete")
 }

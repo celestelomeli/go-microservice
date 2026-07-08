@@ -158,3 +158,34 @@ func TestCreateUserValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestHealthz(t *testing.T) {
+	setupTestDB(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	rec := httptest.NewRecorder()
+	healthzHandler(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rec.Code)
+	}
+}
+
+func TestHealthzDatabaseDown(t *testing.T) {
+	setupTestDB(t)
+
+	// Close the underlying connection to simulate an unreachable database.
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("failed to get sql.DB: %v", err)
+	}
+	sqlDB.Close()
+
+	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	rec := httptest.NewRecorder()
+	healthzHandler(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("expected 503, got %d", rec.Code)
+	}
+}
