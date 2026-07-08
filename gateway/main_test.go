@@ -84,3 +84,13 @@ func TestProxyBackendUnreachable(t *testing.T) {
 		t.Errorf("expected 502 when backend is down, got %d", rec.Code)
 	}
 }
+
+func TestHealthz(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	rec := httptest.NewRecorder()
+	healthzHandler(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rec.Code)
+	}
+}
