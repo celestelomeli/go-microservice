@@ -104,8 +104,8 @@ curl -X DELETE localhost:8080/orders/1   # 204, or 404 if it's already gone
 
 What I'd change for production:
 
-- **One shared database.** All services use one Postgres instance with separate tables (each service only touches its own). Real isolation would mean a database per service — one instance just keeps local dev simple.
-- **Dev-only DB credentials in compose.** Fine for a throwaway local container. Production would pull these from a secrets manager; moving them to a `.env` file is on the list.
+- **One Postgres instance, isolated databases.** Each service gets its own database and login (provisioned by an init script), and revoked CONNECT privileges make cross-service data access impossible rather than just avoided — services can only reach each other's data through their APIs. Separate *instances* per service would be the next isolation level; one instance keeps local dev light and matches the eventual RDS layout.
+- **Dev-only DB credentials in compose and the init script.** Fine for a throwaway local container holding demo data. Production would pull these from a secrets manager; moving them to a `.env` file is on the list.
 - **CORS wide open (`*`)** so the demo UI works from any local origin. Would lock this to known origins for real use.
 - **`sslmode=disable` on DB connections.** Fine inside the compose network 
 - **No auth.** I'd add it at the gateway (JWT) rather than per-service.
