@@ -30,6 +30,11 @@ services:
       DB_USER: appuser
       DB_PASSWORD: secret
       DB_NAME: microservice_db
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8083/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   orderservice:
     build: ./orderservice
@@ -39,13 +44,20 @@ services:
       postgres:
         condition: service_healthy
       productservice:
-        condition: service_started
+        condition: service_healthy
+      userservice:
+        condition: service_healthy
     environment:
       DB_HOST: postgres
       DB_PORT: 5432
       DB_USER: appuser
       DB_PASSWORD: secret
       DB_NAME: microservice_db
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8082/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   productservice:
     build: ./productservice
@@ -60,15 +72,28 @@ services:
       DB_USER: appuser
       DB_PASSWORD: secret
       DB_NAME: microservice_db
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   gateway:
     build: ./gateway
     ports:
       - "8080:8080"
     depends_on:
-      - userservice
-      - orderservice
-      - productservice
+      userservice:
+        condition: service_healthy
+      orderservice:
+        condition: service_healthy
+      productservice:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   frontendservice:
     build: ./frontendservice
@@ -76,7 +101,13 @@ services:
       # Host port 3001 to avoid colliding with other local containers on 3000
       - "3001:3000"
     depends_on:
-      - gateway
+      gateway:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
 volumes:
   postgres_data:
