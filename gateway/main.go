@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 )
 
@@ -72,5 +75,27 @@ func main() {
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 30 * time.Second,
 	}
-	log.Fatal(server.ListenAndServe())
+	runWithGracefulShutdown(server)
+}
+
+// runWithGracefulShutdown serves until SIGTERM/SIGINT, then gives in-flight
+// requests up to 10s to finish so deploys don't cut anyone off mid-request.
+func runWithGracefulShutdown(server *http.Server) {
+	go func() {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatal(err)
+		}
+	}()
+
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, syscall.SIGTERM, syscall.SIGINT)
+	<-stop
+
+	log.Println("shutting down: waiting for in-flight requests")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := server.Shutdown(ctx); err != nil {
+		log.Fatal("forced shutdown:", err)
+	}
+	log.Println("shutdown complete")
 }
